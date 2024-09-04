@@ -7,17 +7,23 @@ struct AppState {
     counter: Mutex<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Dapp {
     name: String,
     version: String,
     description: Option<String>,
     language: String,
+    dependencies: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
 struct QueryLanguage {
     language: String,
+}
+
+#[derive(Serialize)]
+struct ResponseLanguageFeatures {
+    features: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -49,15 +55,17 @@ pub fn create_server() -> Result<Server, Box<dyn Error>> {
 async fn get_language(data: web::Path<QueryLanguage>) -> impl Responder {
     let language = data.language.to_lowercase();
 
+    let response = ResponseLanguageFeatures { features: vec![] };
+
     match language.as_str() {
-        "c++" => HttpResponse::Ok().body("C++ is a powerful language"),
-        "go" => HttpResponse::Ok().body("Go is a simple language"),
-        "javascript" => HttpResponse::Ok().body("JavaScript is a dynamic language"),
-        "lua" => HttpResponse::Ok().body("Lua is a lightweight language"),
-        "python" => HttpResponse::Ok().body("Python is cool!"),
-        "ruby" => HttpResponse::Ok().body("Ruby is elegant"),
-        "rust" => HttpResponse::Ok().body("Rust is awesome!"),
-        "typescript" => HttpResponse::Ok().body("TypeScript is a superset of JavaScript"),
+        "c++" => HttpResponse::Ok().json(response),
+        "go" => HttpResponse::Ok().json(response),
+        "javascript" => HttpResponse::Ok().json(response),
+        "lua" => HttpResponse::Ok().json(response),
+        "python" => HttpResponse::Ok().json(response),
+        "ruby" => HttpResponse::Ok().json(response),
+        "rust" => HttpResponse::Ok().json(response),
+        "typescript" => HttpResponse::Ok().json(response),
         _ => HttpResponse::NotFound().body("Unsupported language"),
     }
 }
@@ -77,9 +85,10 @@ async fn count(state: web::Data<AppState>) -> impl Responder {
 }
 
 #[post("/create_app")]
-async fn create_app(state: web::Data<AppState>) -> impl Responder {
+async fn create_app(state: web::Data<AppState>, request: web::Json<Dapp>) -> impl Responder {
     println!("Creating app");
     let mut counter = state.counter.lock().unwrap();
+    println!("App request {:?}", request);
     *counter += 1;
     println!("App {} create", (*counter));
     HttpResponse::NoContent().finish()
@@ -113,12 +122,31 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn test_get_language() {
+        let app = test::init_service(App::new().service(get_language)).await;
+        let req = test::TestRequest::with_uri("/language/rust").to_request();
+        let res = test::call_service(&app, req).await;
+        assert!(res.status().is_success(), "Response: {:?}", res);
+        let body_received = test::read_body(res).await;
+        let body_value: serde_json::Value = serde_json::from_slice(&body_received).unwrap();
+        assert!(body_value.get("features").unwrap().is_array(), "Body: {:?}", body_received);
+    }
+
+    #[actix_web::test]
     async fn test_create_app() {
         let state = web::Data::new(AppState {
             counter: Mutex::new(0),
         });
         let app = test::init_service(App::new().app_data(state).service(create_app)).await;
-        let req = test::TestRequest::post().uri("/create_app").to_request();
+        let req_body = json!({
+            "name": "myapp",
+            "version": "0.1.0",
+            "language": "rust"
+        });
+        let req = test::TestRequest::post()
+            .set_json(req_body)
+            .uri("/create_app")
+            .to_request();
         let res = test::call_service(&app, req).await;
         assert!(res.status().is_success(), "Response: {:?}", res);
     }
